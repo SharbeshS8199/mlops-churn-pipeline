@@ -1,0 +1,47 @@
+name: drift-monitor
+# Daily: pull recent prediction logs, compare with the training reference. On drift, open an issue
+# with the report and kick off the retraining workflow.
+on:
+  schedule:
+    - cron: "30 2 * * *"      # 08:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+  id-token: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -e '.[monitor]'
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Fetch prediction logs + reference
+        run: |
+          mkdir -p logs models/champion
+          gcloud storage cp "gs://${{ vars.GCS_BUCKET }}/logs/predictions.jsonl" logs/
+          gcloud storage cp "gs://${{ vars.GCS_BUCKET }}/models/champion/reference.csv" models/champion/
+      - name: Detect drift
+        id: drift
+        run: |
+          set +e
+          python -m churn.drift --window 5000
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: drift-report, path: reports/ }
+      - name: Open issue and trigger retraining
+        if: steps.drift.outputs.code == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "Data drift detected $(date +%F)" --body-file reports/drift.md
+          gh workflow run retrain.yml

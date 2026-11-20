@@ -1,0 +1,57 @@
+name: cd
+# After CI passes on main: build the image with the gated model inside, push to Artifact Registry,
+# deploy to Cloud Run, smoke-test the live URL. Auth uses Workload Identity Federation (no JSON keys).
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGION: asia-south1          # Mumbai
+  SERVICE: churn-api
+  IMAGE: asia-south1-docker.pkg.dev/${{ vars.GCP_PROJECT }}/ml/churn-api:${{ github.sha }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -e .
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Get the gated model (published champion if one exists, else train + gate now)
+        run: |
+          mkdir -p models
+          if gcloud storage ls "gs://${{ vars.GCS_BUCKET }}/models/champion/model.joblib" >/dev/null 2>&1; then
+            gcloud storage cp -r "gs://${{ vars.GCS_BUCKET }}/models/champion" models/
+          else
+            python -m churn.train
+            gcloud storage cp -r models/champion "gs://${{ vars.GCS_BUCKET }}/models/"
+          fi
+      - run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+      - run: docker build -t "$IMAGE" . && docker push "$IMAGE"
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          flags: --allow-unauthenticated --memory=512Mi --min-instances=0 --max-instances=3
+          env_vars: LOG_TO_STDOUT=1
+      - name: Smoke test live service
+        run: |
+          curl -fsS "${{ steps.deploy.outputs.url }}/health"
+          curl -fsS -X POST "${{ steps.deploy.outputs.url }}/predict" -H 'content-type: application/json' \
+            -d '{"customers":[{"tenure":2,"MonthlyCharges":95,"TotalCharges":190}]}'

@@ -1,0 +1,17 @@
+# Every value here is logged to MLflow with the run.
+data:
+  rows: 7000          # synthetic rows when the real Telco CSV isn't present
+  seed: 0
+  test_size: 0.2
+
+model:
+  type: gbdt          # gbdt | logreg
+  learning_rate: 0.06
+  max_iter: 300
+  max_leaf_nodes: 15
+  l2_regularization: 1.0
+
+gate:                 # CI fails and nothing is deployed if the new model is below these
+  min_roc_auc: 0.75
+  min_pr_auc: 0.50
+  max_regression: 0.01   # may not be worse than the current champion by more than this (ROC-AUC)
