@@ -1,5 +1,5 @@
 export PYTHONPATH := src
-.PHONY: install validate train serve traffic drift-demo test up
+.PHONY: install validate train serve traffic drift-demo test up dashboard
 
 install:  ; pip install -e '.[all]'
 validate: ; python -m churn.validate
@@ -15,3 +15,5 @@ drift-demo:
 	python -m churn.train
 	python -m churn.simulate_traffic --n 2000 && python -m churn.drift || true
 	python -m churn.simulate_traffic --n 2000 --drift && python -m churn.drift || echo "drift detected -> retraining would be triggered"
+
+dashboard: ; streamlit run dashboard/app.py

@@ -25,6 +25,15 @@ flowchart LR
   R --> G
 ```
 
+## Dashboard
+
+```bash
+pip install -e '.[dashboard]'      # streamlit + plotly
+streamlit run dashboard/app.py
+```
+
+Champion model and quality-gate status · sidebar buttons to **send normal or drifted traffic** and **retrain with the gate** · per-feature drift (PSI) with training-vs-production distributions · live prediction volume and score distribution · Prometheus metrics · every tracked run, coloured by gate result.
+
 ## What each piece shows
 
 | Piece | Where | Why it matters |

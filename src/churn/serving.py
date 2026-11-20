@@ -29,7 +29,8 @@ class ChurnService:
         self.latency_sum = 0.0
         self._lock = threading.Lock()
 
-    def predict(self, records: list[dict]) -> list[dict]:
+    def predict(self, records: list[dict], ts: float | None = None) -> list[dict]:
+        """ts: override the log timestamp (used when replaying/backfilling simulated traffic)."""
         t0 = time.perf_counter()
         df = pd.DataFrame(records)
         missing = [f for f in self.features if f not in df]
@@ -47,7 +48,7 @@ class ChurnService:
             for b in LATENCY_BUCKETS:
                 if ms <= b:
                     self.latency_hist[b] += 1
-            lines = [json.dumps({"ts": time.time(), **{k: rec[k] for k in self.features},
+            lines = [json.dumps({"ts": ts or time.time(), **{k: rec[k] for k in self.features},
                                  "prediction": o["churn_probability"]}) + "\n" for rec, o in zip(records, out)]
             if os.environ.get("LOG_TO_STDOUT"):
                 # Cloud Run: stdout JSON -> Cloud Logging -> log sink to GCS (see deploy/GCP.md)
